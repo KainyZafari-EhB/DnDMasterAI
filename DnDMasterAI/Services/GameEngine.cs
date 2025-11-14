@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using DnDGame.Models;
 
@@ -49,15 +50,69 @@ namespace DnDGame.Services
                 Console.WriteLine($"\n{story}");
                 Console.Write("\nWat doe je? > ");
                 string action = Console.ReadLine() ?? "";
+                string actionTrimmed = action.Trim();
+                string lowerAction = actionTrimmed.ToLowerInvariant();
 
-                if (action.Trim().ToLower() == "exit")
+                if (lowerAction == "exit")
                 {
                     SaveSession();
                     Console.WriteLine("Spel opgeslagen. Tot de volgende keer!");
                     break;
                 }
+                if (lowerAction == "startnewgame")
+                {
+                    EraseSession();
+                    Console.WriteLine("Spel opnieuw gestart..");
+                    break;
+                }
 
-                string prompt = BuildPrompt(action);
+                // Show inventory command
+                if (lowerAction == "inventory" || lowerAction == "inv")
+                {
+                    var inv = _player.Inventory != null && _player.Inventory.Any()
+                        ? string.Join(", ", _player.Inventory)
+                        : "(lege inventaris)";
+                    Console.WriteLine($"\nInventaris van {_player.Name}: {inv}");
+                    continue;
+                }
+
+                // Pickup commands (english/dutch)
+                if (lowerAction.StartsWith("pick up ") || lowerAction.StartsWith("pickup ") ||
+                    lowerAction.StartsWith("neem ") || lowerAction.StartsWith("pak "))
+                {
+                    // Determine start index of item name in original (preserve casing)
+                    int firstSpace = actionTrimmed.IndexOf(' ');
+                    if (firstSpace >= 0)
+                    {
+                        // find index after the command word(s)
+                        string itemName = actionTrimmed.Substring(actionTrimmed.IndexOf(' ') + 1).Trim();
+                        // for "pick up" we need to strip the second word if present
+                        if (itemName.StartsWith("up ", StringComparison.InvariantCultureIgnoreCase))
+                            itemName = itemName.Substring(3).Trim();
+
+                        if (string.IsNullOrEmpty(itemName))
+                        {
+                            Console.WriteLine("Wat wil je oppakken? Geef een itemnaam op.");
+                            continue;
+                        }
+
+                        _player.Inventory ??= new System.Collections.Generic.List<string>();
+                        _player.Inventory.Add(itemName);
+                        try
+                        {
+                            _player.Save();
+                        }
+                        catch
+                        {
+                            // ignore save errors for now
+                        }
+
+                        Console.WriteLine($"Je hebt '{itemName}' opgepakt en toegevoegd aan je inventaris.");
+                        continue;
+                    }
+                }
+
+                string prompt = BuildPrompt(actionTrimmed);
                 string aiResponse = _aiService.AskAI(prompt);
 
                 story = aiResponse.Trim();
@@ -67,6 +122,10 @@ namespace DnDGame.Services
 
         private string BuildPrompt(string action)
         {
+            var inventoryString = _player.Inventory != null && _player.Inventory.Any()
+                ? string.Join(", ", _player.Inventory)
+                : "(lege inventaris)";
+
             return $@"
                         Je bent een ervaren Dungeon Master in een Dungeons & Dragons-verhaal.
                         Het is jouw taak om het verhaal logisch en samenhangend voort te zetten op basis van de voorgaande gebeurtenissen.
@@ -77,10 +136,16 @@ namespace DnDGame.Services
                         Statistieken van de speler:
                         HP: {_player.HP}, STR: {_player.Strength}, DEX: {_player.Dexterity}, INT: {_player.Intelligence}
 
+                        Hou rekening met de inventaris: {inventoryString} en zorg dat er niks kan gebeuren uit het niets.
+                        Zorg ervoor dat er af en toe items te vinden vallen of dat er na combat items droppen,
+                        en dat je daarna zegt wat voor items gedropped zijn. Als de player ervoor kiest om deze op te nemen,
+                        voeg deze toe aan de inventaris van de speler.
+
                         De speler doet het volgende: ""{action}""
 
                         Beperkingen en regels:
                         - Blijf consistent met eerdere gebeurtenissen en personages.
+                        - Zorg ervoor dat het verhaal vooruitgaat maar niet te snel.
                         - Introduceer geen nieuwe elementen zonder logische aanleiding.
                         - Als de speler iets onmogelijks probeert, beschrijf wat er in plaats daarvan gebeurt.
                         - Beschrijf uitsluitend wat er NU gebeurt, niet wat er later zal gebeuren.
@@ -114,6 +179,21 @@ namespace DnDGame.Services
             };
 
             File.WriteAllText(SessionFile, JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true }));
+        }
+        private void EraseSession()
+        {
+            try
+            {
+                if (File.Exists(SessionFile))
+                    File.Delete(SessionFile);
+            }
+            catch
+            {
+                // ignore deletion errors
+            }
+
+            story = "Je ontwaakt in een donkere kerker. Je hoort een druppel vallen...";
+            storySummary = story;
         }
 
         private class SessionData
