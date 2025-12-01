@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using DnDGame.Models;
 
@@ -15,9 +16,17 @@ namespace DnDGame.Services
         private const int MaxSummaryLength = 1200;
         private const string SessionFile = "Data/session.json";
 
+        private readonly ConsoleColor _defaultForeground;
+        private readonly ConsoleColor _defaultBackground;
+
         public GameEngine(Character player)
         {
             _player = player;
+
+            _defaultForeground = Console.ForegroundColor;
+            _defaultBackground = Console.BackgroundColor;
+            Console.OutputEncoding = Encoding.UTF8;
+            Console.Title = "DnD-AI";
 
             if (File.Exists(SessionFile))
             {
@@ -26,7 +35,7 @@ namespace DnDGame.Services
                     var saved = JsonSerializer.Deserialize<SessionData>(File.ReadAllText(SessionFile));
                     story = saved?.Story ?? "Je ontwaakt in een donkere kerker. Je hoort een druppel vallen...";
                     storySummary = saved?.StorySummary ?? story;
-                    Console.WriteLine("Vorige sessie geladen.\n");
+                    WriteLineColor("Vorige sessie geladen.\n", ConsoleColor.DarkGray);
                 }
                 catch
                 {
@@ -43,26 +52,32 @@ namespace DnDGame.Services
 
         public void Run()
         {
-            Console.WriteLine("Welkom bij DnD-AI! Typ 'exit' om te stoppen.\n");
+            WriteLineColor("Welkom bij DnD-AI! Typ 'exit' om te stoppen.", ConsoleColor.Green);
+            WriteLineColor("(Typ 'inventory' of 'inv' om je inventaris te bekijken, 'startnewgame' om opnieuw te beginnen)\n", ConsoleColor.DarkGray);
 
             while (true)
             {
-                Console.WriteLine($"\n{story}");
-                Console.Write("\nWat doe je? > ");
+                WriteLineColor($"\n{story}", ConsoleColor.Cyan);
+
+                WriteColor("\nWat doe je? > ", ConsoleColor.Yellow);
+                Console.ForegroundColor = _defaultForeground;
                 string action = Console.ReadLine() ?? "";
-                string actionTrimmed = action.Trim();
+                string 
+                actionTrimmed = action.Trim();
                 string lowerAction = actionTrimmed.ToLowerInvariant();
 
                 if (lowerAction == "exit")
                 {
                     SaveSession();
-                    Console.WriteLine("Spel opgeslagen. Tot de volgende keer!");
+                    WriteLineColor("Spel opgeslagen. Tot de volgende keer!", ConsoleColor.Green);
+                    ResetColors();
                     break;
                 }
                 if (lowerAction == "startnewgame")
                 {
                     EraseSession();
-                    Console.WriteLine("Spel opnieuw gestart..");
+                    WriteLineColor("Spel opnieuw gestart..", ConsoleColor.Yellow);
+                    ResetColors();
                     break;
                 }
 
@@ -72,7 +87,8 @@ namespace DnDGame.Services
                     var inv = _player.Inventory != null && _player.Inventory.Any()
                         ? string.Join(", ", _player.Inventory)
                         : "(lege inventaris)";
-                    Console.WriteLine($"\nInventaris van {_player.Name}: {inv}");
+                    WriteLineColor($"\nInventaris van {_player.Name}: ", ConsoleColor.Magenta, false);
+                    WriteLineColor(inv, ConsoleColor.White);
                     continue;
                 }
 
@@ -92,7 +108,7 @@ namespace DnDGame.Services
 
                         if (string.IsNullOrEmpty(itemName))
                         {
-                            Console.WriteLine("Wat wil je oppakken? Geef een itemnaam op.");
+                            WriteLineColor("Wat wil je oppakken? Geef een itemnaam op.", ConsoleColor.Yellow);
                             continue;
                         }
 
@@ -107,7 +123,7 @@ namespace DnDGame.Services
                             // ignore save errors for now
                         }
 
-                        Console.WriteLine($"Je hebt '{itemName}' opgepakt en toegevoegd aan je inventaris.");
+                        WriteLineColor($"Je hebt '{itemName}' opgepakt en toegevoegd aan je inventaris.", ConsoleColor.Green);
                         continue;
                     }
                 }
@@ -201,6 +217,32 @@ namespace DnDGame.Services
             public string? Story { get; set; }
             public string? StorySummary { get; set; }
             public string? PlayerName { get; set; }
+        }
+
+        // Helper methods for colored output
+        private void WriteLineColor(string text, ConsoleColor color, bool newLine = true)
+        {
+            var prev = Console.ForegroundColor;
+            Console.ForegroundColor = color;
+            if (newLine)
+                Console.WriteLine(text);
+            else
+                Console.Write(text);
+            Console.ForegroundColor = prev;
+        }
+
+        private void WriteColor(string text, ConsoleColor color)
+        {
+            var prev = Console.ForegroundColor;
+            Console.ForegroundColor = color;
+            Console.Write(text);
+            Console.ForegroundColor = prev;
+        }
+
+        private void ResetColors()
+        {
+            Console.ForegroundColor = _defaultForeground;
+            Console.BackgroundColor = _defaultBackground;
         }
     }
 }
