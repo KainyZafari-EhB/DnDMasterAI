@@ -8,6 +8,10 @@ Console.BackgroundColor = ConsoleColor.Black;
 Console.ForegroundColor = ConsoleColor.Gray;
 Console.Clear();
 
-var player = Character.Load("Hero");
+var loginService = new LoginService();
+var player = loginService.ShowLoginMenu();
+if (player == null)
+    return;
+
 var engine = new GameEngine(player);
 engine.Run();

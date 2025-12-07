@@ -62,21 +62,13 @@ namespace DnDGame.Services
                 WriteColor("\nWat doe je? > ", ConsoleColor.Yellow);
                 Console.ForegroundColor = _defaultForeground;
                 string action = Console.ReadLine() ?? "";
-                string 
-                actionTrimmed = action.Trim();
+                string actionTrimmed = action.Trim();
                 string lowerAction = actionTrimmed.ToLowerInvariant();
 
                 if (lowerAction == "exit")
                 {
                     SaveSession();
                     WriteLineColor("Spel opgeslagen. Tot de volgende keer!", ConsoleColor.Green);
-                    ResetColors();
-                    break;
-                }
-                if (lowerAction == "startnewgame")
-                {
-                    EraseSession();
-                    WriteLineColor("Spel opnieuw gestart..", ConsoleColor.Yellow);
                     ResetColors();
                     break;
                 }
