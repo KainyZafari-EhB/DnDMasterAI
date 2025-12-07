@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Collections.Generic;
 using DnDGame.Models;
 
 namespace DnDGame.Services
@@ -10,6 +11,9 @@ namespace DnDGame.Services
     public class GameEngine
     {
         private readonly AIService _aiService = new();
+        private readonly CombatService _combatService = new();
+        private readonly EncounterService _encounterService = new();
+
         private readonly Character _player;
         private string story;
         private string storySummary;
@@ -72,29 +76,33 @@ namespace DnDGame.Services
                     ResetColors();
                     break;
                 }
+                if (lowerAction == "startnewgame")
+                {
+                    EraseSession();
+                    WriteLineColor("Spel opnieuw gestart..", ConsoleColor.Yellow);
+                    ResetColors();
+                    break;
+                }
 
                 // Show inventory command
                 if (lowerAction == "inventory" || lowerAction == "inv")
                 {
                     var inv = _player.Inventory != null && _player.Inventory.Any()
-                        ? string.Join(", ", _player.Inventory)
+                        ? string.Join(Environment.NewLine, _player.Inventory.Select((it, i) => $"{i + 1}. {it.Name} ({it.Rarity}) - {it.Description}"))
                         : "(lege inventaris)";
                     WriteLineColor($"\nInventaris van {_player.Name}: ", ConsoleColor.Magenta, false);
                     WriteLineColor(inv, ConsoleColor.White);
                     continue;
                 }
 
-                // Pickup commands (english/dutch)
+                // Pickup commands (english/dutch) - create a simple item with name when user manually picks up
                 if (lowerAction.StartsWith("pick up ") || lowerAction.StartsWith("pickup ") ||
                     lowerAction.StartsWith("neem ") || lowerAction.StartsWith("pak "))
                 {
-                    // Determine start index of item name in original (preserve casing)
                     int firstSpace = actionTrimmed.IndexOf(' ');
                     if (firstSpace >= 0)
                     {
-                        // find index after the command word(s)
                         string itemName = actionTrimmed.Substring(actionTrimmed.IndexOf(' ') + 1).Trim();
-                        // for "pick up" we need to strip the second word if present
                         if (itemName.StartsWith("up ", StringComparison.InvariantCultureIgnoreCase))
                             itemName = itemName.Substring(3).Trim();
 
@@ -104,8 +112,9 @@ namespace DnDGame.Services
                             continue;
                         }
 
-                        _player.Inventory ??= new System.Collections.Generic.List<string>();
-                        _player.Inventory.Add(itemName);
+                        _player.Inventory ??= new List<InventoryItem>();
+                        var newItem = new InventoryItem { Name = itemName, Description = $"Een {itemName.ToLower()} die je oppakte.", Rarity = Rarity.Common };
+                        _player.Inventory.Add(newItem);
                         try
                         {
                             _player.Save();
@@ -120,6 +129,147 @@ namespace DnDGame.Services
                     }
                 }
 
+                // Search / explore command that can trigger an encounter
+                if (lowerAction == "search" || lowerAction == "zoek" || lowerAction == "explore")
+                {
+                    var (enemy, loot) = _encounterService.GenerateEncounter(_player);
+                    WriteLineColor($"Je komt een {enemy.Name} tegen! (HP: {enemy.HP})", ConsoleColor.Red);
+
+                    // ask player to fight or flee
+                    while (true)
+                    {
+                        WriteLineColor("Wil je vechten (v) of vluchten (f)?", ConsoleColor.Yellow, false);
+                        string choice = (Console.ReadLine() ?? "").Trim().ToLowerInvariant();
+                        if (choice == "v" || choice == "vecht" || choice == "fight")
+                        {
+                            var combatResult = _combatService.Engage(_player, enemy, loot);
+                            foreach (var line in combatResult.Log)
+                                WriteLineColor(line, ConsoleColor.Gray);
+
+                            _player.HP = combatResult.PlayerRemainingHP;
+                            try
+                            {
+                                _player.Save();
+                            }
+                            catch { }
+
+                            if (combatResult.Winner == _player.Name)
+                            {
+                                WriteLineColor("Je hebt gewonnen!", ConsoleColor.Green);
+                                if (combatResult.Loot != null && combatResult.Loot.Length > 0)
+                                {
+                                    WriteLineColor("Je vindt de volgende spullen:", ConsoleColor.Magenta);
+                                    for (int i = 0; i < combatResult.Loot.Length; i++)
+                                    {
+                                        var it = combatResult.Loot[i];
+                                        WriteLineColor($"{i + 1}. {it.Name} ({it.Rarity}) - {it.Description}", ConsoleColor.White);
+                                    }
+
+                                    // offer pickup
+                                    while (true)
+                                    {
+                                        WriteLineColor("Wil je alles meenemen? (y/n)", ConsoleColor.Yellow, false);
+                                        string takeAll = (Console.ReadLine() ?? "").Trim().ToLowerInvariant();
+                                        if (takeAll == "y" || takeAll == "yes" || takeAll == "ja")
+                                        {
+                                            _player.Inventory ??= new List<InventoryItem>();
+                                            _player.Inventory.AddRange(combatResult.Loot);
+                                            try { _player.Save(); } catch { }
+                                            WriteLineColor("Alle items toegevoegd aan je inventaris.", ConsoleColor.Green);
+                                            break;
+                                        }
+                                        if (takeAll == "n" || takeAll == "no" || takeAll == "nee")
+                                        {
+                                            WriteLineColor("Typ nummers gescheiden door komma's om items te pakken (bijv. 1,3) of 'none' om niks te nemen.", ConsoleColor.Yellow);
+                                            string sel = (Console.ReadLine() ?? "").Trim();
+                                            if (sel.ToLowerInvariant() == "none" || string.IsNullOrEmpty(sel))
+                                            {
+                                                WriteLineColor("Je laat de items liggen.", ConsoleColor.DarkGray);
+                                                break;
+                                            }
+
+                                            var parts = sel.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(p => p.Trim());
+                                            _player.Inventory ??= new List<InventoryItem>();
+                                            foreach (var p in parts)
+                                            {
+                                                if (int.TryParse(p, out int idx) && idx >= 1 && idx <= combatResult.Loot.Length)
+                                                {
+                                                    _player.Inventory.Add(combatResult.Loot[idx - 1]);
+                                                    WriteLineColor($"Opgenomen: {combatResult.Loot[idx - 1].Name}", ConsoleColor.Green);
+                                                }
+                                            }
+
+                                            try { _player.Save(); } catch { }
+                                            break;
+                                        }
+
+                                        WriteLineColor("Ongeldige invoer. Beantwoord met y of n.", ConsoleColor.Yellow);
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                WriteLineColor("Je bent verslagen...", ConsoleColor.Red);
+                                WriteLineColor("Einde van de sessie. Je kunt opnieuw beginnen.", ConsoleColor.Yellow);
+                                EraseSession();
+                                ResetColors();
+                                return;
+                            }
+
+                            break;
+                        }
+                        else if (choice == "f" || choice == "vlucht" || choice == "run")
+                        {
+                            var rng = new Random();
+                            int fleeRoll = rng.Next(1, 21) + _player.Dexterity / 2;
+                            int enemyRoll = rng.Next(1, 21) + enemy.Dexterity / 2;
+                            if (fleeRoll >= enemyRoll)
+                            {
+                                WriteLineColor("Je rent succesvol weg.", ConsoleColor.Green);
+                            }
+                            else
+                            {
+                                WriteLineColor("Je probeert te vluchten maar faalt; het gevecht begint!", ConsoleColor.Red);
+                                var combatResult = _combatService.Engage(_player, enemy, loot);
+                                foreach (var line in combatResult.Log)
+                                    WriteLineColor(line, ConsoleColor.Gray);
+
+                                _player.HP = combatResult.PlayerRemainingHP;
+                                try { _player.Save(); } catch { }
+
+                                if (combatResult.Winner == _player.Name)
+                                {
+                                    WriteLineColor("Je hebt gewonnen!", ConsoleColor.Green);
+                                    if (combatResult.Loot != null && combatResult.Loot.Length > 0)
+                                    {
+                                        WriteLineColor("Je vindt de volgende spullen:", ConsoleColor.Magenta);
+                                        for (int i = 0; i < combatResult.Loot.Length; i++)
+                                            WriteLineColor($"{i + 1}. {combatResult.Loot[i].Name} ({combatResult.Loot[i].Rarity}) - {combatResult.Loot[i].Description}", ConsoleColor.White);
+
+                                        WriteLineColor("Typ 'pickup <naam>' om items handmatig op te pakken, of 'inventory' om je inventaris te bekijken.", ConsoleColor.DarkGray);
+                                    }
+                                }
+                                else
+                                {
+                                    WriteLineColor("Je bent verslagen...", ConsoleColor.Red);
+                                    WriteLineColor("Einde van de sessie. Je kunt opnieuw beginnen.", ConsoleColor.Yellow);
+                                    EraseSession();
+                                    ResetColors();
+                                    return;
+                                }
+                            }
+
+                            break;
+                        }
+
+                        WriteLineColor("Ongeldige keuze. Typ 'v' om te vechten of 'f' om te vluchten.", ConsoleColor.Yellow);
+                    }
+
+                    story = $"Je hebt een encounter met {enemy.Name} gehad.";
+                    UpdateStorySummary(story);
+                    continue;
+                }
+
                 string prompt = BuildPrompt(actionTrimmed);
                 string aiResponse = _aiService.AskAI(prompt);
 
@@ -131,7 +281,7 @@ namespace DnDGame.Services
         private string BuildPrompt(string action)
         {
             var inventoryString = _player.Inventory != null && _player.Inventory.Any()
-                ? string.Join(", ", _player.Inventory)
+                ? string.Join(", ", _player.Inventory.Select(i => i.Name))
                 : "(lege inventaris)";
 
             return $@"
