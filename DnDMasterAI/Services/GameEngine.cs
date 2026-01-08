@@ -106,8 +106,11 @@ namespace DnDGame.Services
                             continue;
                         }
 
-                        _player.Inventory ??= new System.Collections.Generic.List<string>();
-                        _player.Inventory.Add(itemName);
+                        if (_player.Inventory == null)
+                        {
+                            _player.Inventory = new List<InventoryItem>();
+                        }
+                        _player.Inventory.Add(new InventoryItem { Name = itemName});
                         try
                         {
                             _player.Save();
