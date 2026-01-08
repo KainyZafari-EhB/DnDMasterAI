@@ -14,7 +14,8 @@ namespace DnDGame.Models
     public class InventoryItem
     {
         public Guid Id { get; set; } = Guid.NewGuid();
-        public string Name { get; set; } = string.Empty;
+        private string _name = string.Empty;
+        public string Name { get => _name; set =>_name = value ?? string.Empty; }
         public string? Description { get; set; }
         public Rarity Rarity { get; set; } = Rarity.Common;
         public double Weight { get; set; } = 0.0;
