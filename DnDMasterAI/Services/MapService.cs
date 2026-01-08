@@ -1,155 +1,37 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.RegularExpressions;
 
 namespace DnDGame.Services
 {
     public class MapService
     {
         private readonly Dictionary<string, Location> _locations = new();
-        private string _currentLocationKey = "unknown";
-        private readonly AIService _aiService;
+        private string _currentLocationKey = "start";
+        private readonly Dictionary<string, (int x, int y)> _locationPositions = new();
 
-        public MapService(AIService aiService)
+        public MapService()
         {
-            _aiService = aiService;
+            InitializeStartingLocation();
         }
 
-        public void UpdateMapFromStory(string story, string storySummary)
+        private void InitializeStartingLocation()
         {
-            // Extract location information from the story using AI
-            string prompt = $@"Analyseer de volgende tekst en identificeer de HUIDIGE locatie waar de speler zich bevindt.
-            
-Story: {story}
-Context: {storySummary}
-
-Geef alleen de volgende informatie terug in dit exacte formaat (��n regel per item):
-LOCATIE: [naam van de locatie]
-BESCHRIJVING: [korte beschrijving]
-UITGANGEN: [komma-gescheiden lijst van richtingen zoals noord,zuid,oost,west]
-
-Als er geen duidelijke locatie is, gebruik dan 'Onbekende locatie' als naam.";
-
-            try
+            _locations["start"] = new Location
             {
-                string aiResponse = _aiService.AskAI(prompt);
-                ParseAILocationResponse(aiResponse, story);
-            }
-            catch
-            {
-                // Fallback: try pattern matching
-                ExtractLocationFromPattern(story);
-            }
-        }
-
-        private void ParseAILocationResponse(string response, string originalStory)
-        {
-            var lines = response.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-            string locationName = "Onbekende locatie";
-            string description = "Je bent ergens, maar weet niet precies waar.";
-            var exits = new Dictionary<string, string>();
-
-            foreach (var line in lines)
-            {
-                var trimmed = line.Trim();
-                if (trimmed.StartsWith("LOCATIE:", StringComparison.OrdinalIgnoreCase))
-                {
-                    locationName = trimmed.Substring(8).Trim();
-                }
-                else if (trimmed.StartsWith("BESCHRIJVING:", StringComparison.OrdinalIgnoreCase))
-                {
-                    description = trimmed.Substring(13).Trim();
-                }
-                else if (trimmed.StartsWith("UITGANGEN:", StringComparison.OrdinalIgnoreCase))
-                {
-                    var exitString = trimmed.Substring(10).Trim();
-                    var directions = exitString.Split(',', StringSplitOptions.RemoveEmptyEntries);
-                    foreach (var dir in directions)
-                    {
-                        var cleanDir = dir.Trim().ToLowerInvariant();
-                        if (!string.IsNullOrEmpty(cleanDir))
-                        {
-                            // Create placeholder locations for exits
-                            exits[cleanDir] = $"unknown_{cleanDir}";
-                        }
-                    }
-                }
-            }
-
-            // Sanitize location name for use as key
-            string locationKey = SanitizeLocationKey(locationName);
-
-            // Add or update the location
-            if (!_locations.ContainsKey(locationKey))
-            {
-                _locations[locationKey] = new Location
-                {
-                    Name = locationName,
-                    Description = description,
-                    Exits = exits
-                };
-            }
-            else
-            {
-                // Update existing location
-                _locations[locationKey].Description = description;
-                // Merge exits
-                foreach (var exit in exits)
-                {
-                    if (!_locations[locationKey].Exits.ContainsKey(exit.Key))
-                        _locations[locationKey].Exits[exit.Key] = exit.Value;
-                }
-            }
-
-            // Update current location
-            _currentLocationKey = locationKey;
-        }
-
-        private void ExtractLocationFromPattern(string story)
-        {
-            // Fallback pattern matching for common location descriptions
-            var patterns = new Dictionary<string, string>
-            {
-                { @"kerker|cel|gevangenis", "Kerker" },
-                { @"gang|corridor|hal", "Gang" },
-                { @"kamer|ruimte", "Kamer" },
-                { @"bos|woud", "Bos" },
-                { @"grot|hol", "Grot" },
-                { @"marktplein|markt|plein", "Marktplein" },
-                { @"schip|boot|dek", "Schip" },
-                { @"bibliotheek", "Bibliotheek" },
-                { @"troonzaal|troon", "Troonzaal" }
+                Name = "Startlocatie",
+                Description = "Je beginpunt van het avontuur.",
+                Exits = new Dictionary<string, string>()
             };
-
-            string locationName = "Onbekende locatie";
-            foreach (var pattern in patterns)
-            {
-                if (Regex.IsMatch(story, pattern.Key, RegexOptions.IgnoreCase))
-                {
-                    locationName = pattern.Value;
-                    break;
-                }
-            }
-
-            string locationKey = SanitizeLocationKey(locationName);
-            
-            if (!_locations.ContainsKey(locationKey))
-            {
-                _locations[locationKey] = new Location
-                {
-                    Name = locationName,
-                    Description = story.Length > 100 ? story.Substring(0, 100) + "..." : story,
-                    Exits = new Dictionary<string, string>()
-                };
-            }
-
-            _currentLocationKey = locationKey;
+            _locationPositions["start"] = (0, 0);
+            _currentLocationKey = "start";
         }
 
-        private string SanitizeLocationKey(string name)
+        public void UpdateMapFromStory(string story)
         {
-            return Regex.Replace(name.ToLowerInvariant(), @"[^a-z0-9]+", "_");
+            // Simply extract direction keywords from the story
+            // The player will tell us where they're going with commands like "ga noord"
+            // This map service doesn't need to parse the story - the game engine handles direction
         }
 
         public bool TryMove(string direction)
@@ -159,7 +41,7 @@ Als er geen duidelijke locatie is, gebruik dan 'Onbekende locatie' als naam.";
 
             var directionLower = direction.ToLowerInvariant();
 
-            // Map common variations
+            // Normalize direction input
             var directionMap = new Dictionary<string, string>
             {
                 { "n", "noord" }, { "north", "noord" },
@@ -172,28 +54,56 @@ Als er geen duidelijke locatie is, gebruik dan 'Onbekende locatie' als naam.";
             if (directionMap.ContainsKey(directionLower))
                 directionLower = directionMap[directionLower];
 
-            if (currentLocation.Exits.TryGetValue(directionLower, out string? nextLocationKey))
+            // Check if we know where this direction leads
+            if (currentLocation.Exits.ContainsKey(directionLower))
             {
-                // If the next location doesn't exist yet, create a placeholder
-                if (!_locations.ContainsKey(nextLocationKey))
-                {
-                    _locations[nextLocationKey] = new Location
-                    {
-                        Name = $"Nieuwe locatie ({directionLower})",
-                        Description = "Een nieuwe plek die je nog moet verkennen.",
-                        Exits = new Dictionary<string, string>
-                        {
-                            // Add reverse direction back
-                            { GetOppositeDirection(directionLower), _currentLocationKey }
-                        }
-                    };
-                }
-
-                _currentLocationKey = nextLocationKey;
+                _currentLocationKey = currentLocation.Exits[directionLower];
                 return true;
             }
 
-            return false;
+            // Create a new location in this direction
+            string newLocationKey = CreateNewLocation(directionLower);
+            currentLocation.Exits[directionLower] = newLocationKey;
+            _currentLocationKey = newLocationKey;
+            return true;
+        }
+
+        private string CreateNewLocation(string direction)
+        {
+            var (offsetX, offsetY) = GetOffsetFromDirection(direction);
+            var (currentX, currentY) = _locationPositions[_currentLocationKey];
+            int newX = currentX + offsetX;
+            int newY = currentY + offsetY;
+            var newPos = (newX, newY);
+
+            // Generate unique key based on position
+            string newLocationKey = $"loc_{newX}_{newY}";
+
+            // Create the new location with reverse exit
+            _locations[newLocationKey] = new Location
+            {
+                Name = $"Onbekende ruimte",
+                Description = "Een plek die je nog moet verkennen.",
+                Exits = new Dictionary<string, string>
+                {
+                    { GetOppositeDirection(direction), _currentLocationKey }
+                }
+            };
+
+            _locationPositions[newLocationKey] = newPos;
+            return newLocationKey;
+        }
+
+        private (int, int) GetOffsetFromDirection(string direction)
+        {
+            return direction switch
+            {
+                "noord" => (0, 1),
+                "zuid" => (0, -1),
+                "oost" => (1, 0),
+                "west" => (-1, 0),
+                _ => (0, 0)
+            };
         }
 
         private string GetOppositeDirection(string direction)
@@ -208,18 +118,22 @@ Als er geen duidelijke locatie is, gebruik dan 'Onbekende locatie' als naam.";
             };
         }
 
-        public void AddExit(string direction, string targetLocationKey)
+        public void UpdateLocationName(string locationKey, string name)
         {
-            if (_locations.TryGetValue(_currentLocationKey, out var location))
-            {
-                location.Exits[direction.ToLowerInvariant()] = targetLocationKey;
-            }
+            if (_locations.ContainsKey(locationKey))
+                _locations[locationKey].Name = name;
+        }
+
+        public void UpdateLocationDescription(string locationKey, string description)
+        {
+            if (_locations.ContainsKey(locationKey))
+                _locations[locationKey].Description = description;
         }
 
         public string GetCurrentLocationName()
         {
-            return _locations.TryGetValue(_currentLocationKey, out var location) 
-                ? location.Name 
+            return _locations.TryGetValue(_currentLocationKey, out var location)
+                ? location.Name
                 : "Onbekende Locatie";
         }
 
@@ -239,79 +153,127 @@ Als er geen duidelijke locatie is, gebruik dan 'Onbekende locatie' als naam.";
 
         public string DisplayMap()
         {
-            var current = _locations.TryGetValue(_currentLocationKey, out var loc) 
-                ? loc 
-                : new Location { Name = "Onbekend", Description = "???" };
+            if (!_locationPositions.Any())
+                return "Geen kaart beschikbaar.\n";
 
-            var map = new System.Text.StringBuilder();
+            var output = new System.Text.StringBuilder();
+            output.AppendLine("\n╔════════════════════════════════════════════════════════════╗");
+            output.AppendLine("║                    🗺️  DUNGEON KAART  🗺️                     ║");
+            output.AppendLine("╚════════════════════════════════════════════════════════════╝\n");
 
-            map.AppendLine("?????????????????????????????????????????????");
-            map.AppendLine($"? ?? Huidige Locatie: {TruncateOrPad(current.Name, 22)} ?");
-            map.AppendLine("?????????????????????????????????????????????");
-            
-            // Word wrap description
-            var descLines = WordWrap(current.Description, 41);
-            foreach (var line in descLines)
+            int minX = _locationPositions.Values.Min(p => p.x);
+            int maxX = _locationPositions.Values.Max(p => p.x);
+            int minY = _locationPositions.Values.Min(p => p.y);
+            int maxY = _locationPositions.Values.Max(p => p.y);
+
+            // Draw rooms
+            for (int y = maxY; y >= minY; y--)
             {
-                map.AppendLine($"? {TruncateOrPad(line, 41)} ?");
-            }
-            
-            map.AppendLine("?????????????????????????????????????????????");
-            map.AppendLine("? Uitgangen:                                ?");
+                var roomLine = new System.Text.StringBuilder();
 
-            if (current.Exits.Any())
-            {
-                foreach (var exit in current.Exits)
+                for (int x = minX; x <= maxX; x++)
                 {
-                    var targetName = _locations.TryGetValue(exit.Value, out var targetLoc) 
-                        ? targetLoc.Name 
-                        : "???";
-                    var exitLine = $"? {exit.Key,-8} naar {targetName}";
-                    map.AppendLine($"?   {TruncateOrPad(exitLine, 39)} ?");
+                    var locKey = _locationPositions.FirstOrDefault(kvp => kvp.Value.x == x && kvp.Value.y == y).Key;
+
+                    if (locKey != null)
+                    {
+                        bool isCurrent = (locKey == _currentLocationKey);
+                        roomLine.Append(isCurrent ? " [●] " : " [◯] ");
+                    }
+                    else
+                    {
+                        roomLine.Append("     ");
+                    }
+
+                    // Horizontal connection
+                    if (x < maxX)
+                    {
+                        var rightLoc = _locationPositions.FirstOrDefault(kvp => kvp.Value.x == x + 1 && kvp.Value.y == y).Key;
+                        if (locKey != null && rightLoc != null)
+                            roomLine.Append("─");
+                        else
+                            roomLine.Append(" ");
+                    }
+                }
+
+                output.AppendLine(roomLine.ToString());
+
+                // Room names
+                var nameLine = new System.Text.StringBuilder();
+                for (int x = minX; x <= maxX; x++)
+                {
+                    var locKey = _locationPositions.FirstOrDefault(kvp => kvp.Value.x == x && kvp.Value.y == y).Key;
+                    if (locKey != null)
+                    {
+                        var loc = _locations[locKey];
+                        string name = loc.Name.Length > 5 ? loc.Name.Substring(0, 5) : loc.Name;
+                        nameLine.Append($" {name,-5}");
+                    }
+                    else
+                    {
+                        nameLine.Append("      ");
+                    }
+
+                    if (x < maxX)
+                        nameLine.Append(" ");
+                }
+
+                output.AppendLine(nameLine.ToString());
+
+                // Vertical connections
+                if (y > minY)
+                {
+                    var vertLine = new System.Text.StringBuilder();
+                    for (int x = minX; x <= maxX; x++)
+                    {
+                        var locKey = _locationPositions.FirstOrDefault(kvp => kvp.Value.x == x && kvp.Value.y == y).Key;
+                        var belowLoc = _locationPositions.FirstOrDefault(kvp => kvp.Value.x == x && kvp.Value.y == y - 1).Key;
+
+                        if (locKey != null && belowLoc != null)
+                            vertLine.Append("  │  ");
+                        else
+                            vertLine.Append("     ");
+
+                        if (x < maxX)
+                            vertLine.Append(" ");
+                    }
+                    output.AppendLine(vertLine.ToString());
+                }
+            }
+
+            output.AppendLine("\n═══════════════════════════════════════════════════════════\n");
+
+            // Current location info
+            output.AppendLine($"📍 JE BENT HIER: {GetCurrentLocationName()}");
+            output.AppendLine($"   {GetCurrentLocationDescription()}\n");
+
+            var exits = GetAvailableExits();
+            if (exits.Any())
+            {
+                output.AppendLine("⬇️  JE KUNT GAAN NAAR:");
+                foreach (var exit in exits)
+                {
+                    var arrow = exit switch
+                    {
+                        "noord" => "⬆️ ",
+                        "zuid" => "⬇️ ",
+                        "oost" => "➡️ ",
+                        "west" => "⬅️ ",
+                        _ => "→ "
+                    };
+                    output.AppendLine($"   {arrow} Typ: 'ga {exit}'");
                 }
             }
             else
             {
-                map.AppendLine("?   (gebruik AI om nieuwe locaties te      ?");
-                map.AppendLine("?    ontdekken tijdens het verhaal)         ?");
+                output.AppendLine("ℹ️  Je kunt in alle richtingen gaan (noord, zuid, oost, west)");
             }
 
-            map.AppendLine("?????????????????????????????????????????????");
+            output.AppendLine("\n═══════════════════════════════════════════════════════════");
+            output.AppendLine("Legend: ● = je bent hier | ◯ = bezochte ruimte");
+            output.AppendLine("═══════════════════════════════════════════════════════════\n");
 
-            return map.ToString();
-        }
-
-        private string TruncateOrPad(string text, int length)
-        {
-            if (text.Length > length)
-                return text.Substring(0, length - 3) + "...";
-            return text.PadRight(length);
-        }
-
-        private List<string> WordWrap(string text, int maxWidth)
-        {
-            var lines = new List<string>();
-            var words = text.Split(' ');
-            var currentLine = "";
-
-            foreach (var word in words)
-            {
-                if ((currentLine + " " + word).Trim().Length <= maxWidth)
-                {
-                    currentLine = (currentLine + " " + word).Trim();
-                }
-                else
-                {
-                    if (!string.IsNullOrEmpty(currentLine))
-                        lines.Add(currentLine);
-                    currentLine = word;
-                }
-            }
-
-            if (!string.IsNullOrEmpty(currentLine))
-                lines.Add(currentLine);
-
-            return lines;
+            return output.ToString();
         }
 
         public void SetCurrentLocation(string locationKey)

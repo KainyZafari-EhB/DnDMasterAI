@@ -36,7 +36,7 @@ namespace DnDGame.Services
         public GameEngine(Character player)
         {
             _player = player;
-            _mapService = new MapService(_aiService);
+            _mapService = new MapService();
 
             _defaultForeground = Console.ForegroundColor;
             _defaultBackground = Console.BackgroundColor;
@@ -53,23 +53,18 @@ namespace DnDGame.Services
                     if (saved?.CurrentLocation != null)
                         _mapService.SetCurrentLocation(saved.CurrentLocation);
                     
-                    // Update map from loaded story
-                    _mapService.UpdateMapFromStory(story, storySummary);
-                    
                     WriteLineColor("Vorige sessie geladen.\n", ConsoleColor.DarkGray);
                 }
                 catch
                 {
                     story = GetRandomStart();
                     storySummary = story;
-                    _mapService.UpdateMapFromStory(story, storySummary);
                 }
             }
             else
             {
                 story = GetRandomStart();
                 storySummary = story;
-                _mapService.UpdateMapFromStory(story, storySummary);
             }
 
             ExtractNpcsFromStory(storySummary);
@@ -131,25 +126,31 @@ namespace DnDGame.Services
                     if (lowerAction.StartsWith(prefix))
                     {
                         string direction = lowerAction.Substring(prefix.Length).Trim();
+                        
                         if (_mapService.TryMove(direction))
                         {
                             WriteLineColor($"Je beweegt naar het {direction}...", ConsoleColor.Green);
                             
-                            // Ask AI to describe the new location
-                            string locationPrompt = $@"De speler is naar het {direction} gegaan vanuit {_mapService.GetCurrentLocationName()}.
-                            Beschrijf kort (max 3 zinnen) wat de speler ziet en ervaart in deze nieuwe ruimte/locatie.
-                            Blijf consistent met het verhaal tot nu toe: {storySummary}";
+                            // Ask AI to describe the location you just entered
+                            string locationPrompt = $@"De speler is naar het {direction} gegaan. 
+                            Beschrijf KORT (max 2 zinnen) wat de speler nu ziet in deze nieuwe ruimte.
+                            Geef ook aan welke richtingen (noord/zuid/oost/west) open lijken te staan.
+                            Context: {storySummary}";
                             
                             string locationDesc = _aiService.AskAI(locationPrompt);
+                            
+                            // Update the map with the location description
+                            _mapService.UpdateLocationDescription(_mapService.GetCurrentLocationKey(), locationDesc);
+                            
                             WriteLineColor($"\n{locationDesc}", ConsoleColor.Cyan);
                             
                             story = locationDesc;
                             UpdateStorySummary(story);
-                            _mapService.UpdateMapFromStory(story, storySummary);
+                            ExtractNpcsFromStory(story);
                         }
                         else
                         {
-                            WriteLineColor($"Je kunt niet naar het {direction} gaan vanuit hier.", ConsoleColor.Red);
+                            WriteLineColor($"Je kunt niet naar het {direction} gaan.", ConsoleColor.Red);
                         }
                         isMovement = true;
                         break;
@@ -163,16 +164,19 @@ namespace DnDGame.Services
                 if (lowerAction.StartsWith("pick up ") || lowerAction.StartsWith("pickup ") ||
                     lowerAction.StartsWith("neem ") || lowerAction.StartsWith("pak "))
                 {
+                    // Determine start index of item name in original (preserve casing)
                     int firstSpace = actionTrimmed.IndexOf(' ');
                     if (firstSpace >= 0)
                     {
+                        // find index after the command word(s)
                         string itemName = actionTrimmed.Substring(actionTrimmed.IndexOf(' ') + 1).Trim();
+                        // for "pick up" we need to strip the second word if present
                         if (itemName.StartsWith("up ", StringComparison.InvariantCultureIgnoreCase))
                             itemName = itemName.Substring(3).Trim();
 
                         if (string.IsNullOrEmpty(itemName))
                         {
-                            WriteLineColor("Wat wil je oppakken? Geef een itemnaam op.", ConsoleColor.Yellow);
+                            Console.WriteLine("Wat wil je oppakken? Geef een itemnaam op.");
                             continue;
                         }
 
@@ -213,7 +217,6 @@ namespace DnDGame.Services
                     string encounterText = ResolveEncounter(enemy, loot);
                     story = encounterText;
                     UpdateStorySummary(story);
-                    _mapService.UpdateMapFromStory(story, storySummary);
                     ExtractNpcsFromStory(story);
                     continue;
                 }
@@ -223,7 +226,6 @@ namespace DnDGame.Services
 
                 story = aiResponse.Trim();
                 UpdateStorySummary(story);
-                _mapService.UpdateMapFromStory(story, storySummary);
                 ExtractNpcsFromStory(story);
             }
         }
@@ -425,7 +427,7 @@ namespace DnDGame.Services
             story = GetRandomStart();
             storySummary = story;
             _activeNpcs.Clear();
-            _mapService.UpdateMapFromStory(story, storySummary);
+            _mapService.UpdateMapFromStory(storySummary);
         }
 
         private string GetRandomStart()
