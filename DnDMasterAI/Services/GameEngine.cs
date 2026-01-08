@@ -139,7 +139,11 @@ namespace DnDGame.Services
                             
                             string locationDesc = _aiService.AskAI(locationPrompt);
                             
-                            // Update the map with the location description
+                            // Extract location name from the description
+                            string locationName = ExtractLocationName(locationDesc);
+                            
+                            // Update the map with the location name and description
+                            _mapService.UpdateLocationName(_mapService.GetCurrentLocationKey(), locationName);
                             _mapService.UpdateLocationDescription(_mapService.GetCurrentLocationKey(), locationDesc);
                             
                             WriteLineColor($"\n{locationDesc}", ConsoleColor.Cyan);
@@ -466,6 +470,74 @@ namespace DnDGame.Services
         {
             Console.ForegroundColor = _defaultForeground;
             Console.BackgroundColor = _defaultBackground;
+        }
+
+        private string ExtractLocationName(string description)
+        {
+            // Common location patterns
+            var patterns = new Dictionary<string, string>
+            {
+                { @"(?:donkere|duistere|pikzwarte)\s+kerker", "Donkere Kerker" },
+                { @"(?:lange|brede|smalle)\s+gang", "Lange Gang" },
+                { @"(?:mystieke|oude|vreemde)\s+kamer", "Mystieke Kamer" },
+                { @"(?:donker|dicht|oerwoud)\s+(?:woud|bos)", "Donker Woud" },
+                { @"(?:kristallen|glanzende|schitterende)\s+grot", "Kristallen Grot" },
+                { @"(?:verlaten|stille|grote)\s+(?:markt|plein)", "Verlaten Marktplein" },
+                { @"(?:houten|oude|drijvende)\s+schip", "Oud Schip" },
+                { @"(?:oude|stofige|donkere)\s+bibliotheek", "Oude Bibliotheek" },
+                { @"(?:koninklijke|prachtige|grootse)\s+(?:troon|zaal)", "Troonzaal" },
+                { @"schatkamer", "Schatkamer" },
+                { @"laboratorium", "Laboratorium" },
+                { @"(?:tuin|tuinen|verborgen\s+tuin)", "Verborgen Tuin" },
+                { @"(?:trap|trapgang|spiraal)", "Spiraaltrappen" },
+                { @"(?:stenen|houten)\s+brug", "Stenen Brug" },
+                { @"(?:ondergronds|verborgen)\s+meer", "Ondergrondse Meer" },
+                { @"tempel", "Verlaten Tempel" },
+                { @"kasteel", "Kasteel" },
+                { @"graftombe", "Graftombe" },
+                { @"donkere\s+hal", "Donkere Hal" },
+                { @"throon", "Troonzaal" }
+            };
+
+            var lowerDesc = description.ToLowerInvariant();
+            
+            // Try to match known patterns
+            foreach (var pattern in patterns)
+            {
+                if (System.Text.RegularExpressions.Regex.IsMatch(lowerDesc, pattern.Key, System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                {
+                    return pattern.Value;
+                }
+            }
+
+            // Extract first sentence as fallback
+            int periodIndex = description.IndexOf('.');
+            if (periodIndex > 0)
+            {
+                string firstSentence = description.Substring(0, periodIndex).Trim();
+                
+                // Remove common prefixes
+                string[] prefixes = { "je bent in ", "je ziet ", "je staat in ", "je bevindt je in ", "voor je ", "je betreedt ", "je komt in " };
+                foreach (var prefix in prefixes)
+                {
+                    if (firstSentence.ToLowerInvariant().StartsWith(prefix))
+                    {
+                        firstSentence = firstSentence.Substring(prefix.Length).Trim();
+                        break;
+                    }
+                }
+
+                // Capitalize and limit length
+                if (firstSentence.Length > 2)
+                {
+                    firstSentence = char.ToUpper(firstSentence[0]) + firstSentence.Substring(1);
+                    if (firstSentence.Length > 25)
+                        firstSentence = firstSentence.Substring(0, 22) + "...";
+                    return firstSentence;
+                }
+            }
+
+            return "Onbekende Ruimte";
         }
     }
 }
