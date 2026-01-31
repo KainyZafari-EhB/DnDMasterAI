@@ -1,7 +1,7 @@
-DnDMasterAI
+**DnDMasterAI**
 DnDMasterAI is a C# console-based Dungeons & Dragons adventure game powered by AI. The game uses a local Large Language Model (LLM) via Ollama to act as a Dungeon Master, dynamically generating story content and responding to player actions in real-time.
 
-Features
+*Features*
 AI-Driven Narrative: Uses llama3 via Ollama to provide a cohesive and reactive storytelling experience in Dutch.
 
 Character Management: Create, load, and delete characters with persistent storage in JSON format.
@@ -14,12 +14,12 @@ Session Persistence: Saves your story progress and inventory so you can resume y
 
 Inventory System: Collect items during your journey with support for different rarity levels and weights.
 
-Project Structure
+*Project Structure*
 The project is organized into several key components:
 
 Models: Defines the data structures for Character, Enemy, InventoryItem, and CombatResult.
 
-Services:
+*Services:*
 
 AIService: Manages communication with the Ollama process.
 
@@ -31,26 +31,23 @@ GameEngine: The core loop that manages story flow, player input, and AI promptin
 
 LoginService: Manages the initial menus for session and character loading.
 
-Requirements
+*Requirements*
 .NET 8.0 SDK
 
 Ollama: Must be installed and running locally with the llama3 model pulled.
 
-Getting Started
+*Getting Started*
 Clone the repository:
 
-Bash
 
 git clone <repository-url>
 Restore and Build:
 
-Bash
 
 dotnet restore
 dotnet build
 Run the application:
 
-Bash
 
 dotnet run --project DnDMasterAI
 How to Play
