@@ -56,3 +56,5 @@ The project is organized into several key components:
 
 * **Line Endings**: The project uses `.gitattributes` to automatically normalize line endings.
 * **Ignored Files**: Standard Visual Studio and .NET build artifacts are excluded via `.gitignore`.
+ ---------------------------
+ This project was largely vibecoded.
